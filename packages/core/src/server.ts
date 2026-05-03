@@ -217,7 +217,9 @@ class Server {
         "preHandler",
         async (req: FastifyRequest, reply: FastifyReply) => {
           const url = new URL(`http://127.0.0.1${req.url}`);
-          if (url.pathname.endsWith("/v1/messages") && req.body) {
+          const isChatCompletions = url.pathname.endsWith("/v1/chat/completions");
+          const isMessages = url.pathname.endsWith("/v1/messages");
+          if ((isChatCompletions || isMessages) && req.body) {
             try {
               const body = req.body as any;
               if (!body || !body.model) {
