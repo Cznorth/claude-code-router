@@ -33,20 +33,27 @@ export class ReasoningTransformer implements Transformer {
   async transformResponseOut(response: Response, context?: any): Promise<Response> {
     if (!this.enable) return response;
 
-    // Check if the client requested thinking - if not, don't convert reasoning_content
+    // Check if the client requested thinking
     const clientRequestedThinking = context?.req?.body?.thinking !== undefined;
-    if (!clientRequestedThinking) {
-      return response;
-    }
 
     if (response.headers.get("Content-Type")?.includes("application/json")) {
       const jsonResponse = await response.json();
+
       if (jsonResponse.choices[0]?.message.reasoning_content) {
-        jsonResponse.thinking = {
-          content: jsonResponse.choices[0]?.message.reasoning_content
+        if (clientRequestedThinking) {
+          // Convert reasoning_content to thinking block
+          jsonResponse.thinking = {
+            content: jsonResponse.choices[0]?.message.reasoning_content
+          };
+        } else {
+          // Convert reasoning_content to regular content
+          jsonResponse.choices[0].message.content =
+            (jsonResponse.choices[0].message.content || "") +
+            jsonResponse.choices[0].message.reasoning_content;
         }
+        delete jsonResponse.choices[0].message.reasoning_content;
       }
-      // Handle non-streaming response if needed
+
       return new Response(JSON.stringify(jsonResponse), {
         status: response.status,
         statusText: response.statusText,
@@ -67,24 +74,10 @@ export class ReasoningTransformer implements Transformer {
         async start(controller) {
           const reader = response.body!.getReader();
 
-          // Process buffer function
-          const processBuffer = (
-            buffer: string,
-            controller: ReadableStreamDefaultController,
-            encoder: TextEncoder
-          ) => {
-            const lines = buffer.split("\n");
-            for (const line of lines) {
-              if (line.trim()) {
-                controller.enqueue(encoder.encode(line + "\n"));
-              }
-            }
-          };
-
           // Process line function
           const processLine = (
             line: string,
-            context: {
+            ctx: {
               controller: ReadableStreamDefaultController;
               encoder: typeof TextEncoder;
               reasoningContent: () => string;
@@ -93,14 +86,13 @@ export class ReasoningTransformer implements Transformer {
               setReasoningComplete: (val: boolean) => void;
             }
           ) => {
-            const { controller, encoder } = context;
+            const { controller, encoder } = ctx;
 
             this.logger?.debug({ line }, `Processing reason line`);
 
             if (line.startsWith("data: ") && line.trim() !== "data: [DONE]") {
               try {
                 const data = JSON.parse(line.slice(6));
-                console.log(JSON.stringify(data))
 
                 // Check if this chunk has usage info - if so, always send it
                 if (data.usage && Object.keys(data.usage).length > 0) {
@@ -109,82 +101,103 @@ export class ReasoningTransformer implements Transformer {
                   return;
                 }
 
-                // Extract reasoning_content from delta
-                if (data.choices?.[0]?.delta?.reasoning_content) {
-                  context.appendReasoningContent(
-                    data.choices[0].delta.reasoning_content
-                  );
-                  const thinkingChunk = {
-                    ...data,
-                    choices: [
-                      {
-                        ...data.choices[0],
-                        delta: {
-                          ...data.choices[0].delta,
-                          thinking: {
-                            content: data.choices[0].delta.reasoning_content,
+                if (clientRequestedThinking) {
+                  // Client wants thinking - convert reasoning_content to thinking block
+
+                  // Extract reasoning_content from delta
+                  if (data.choices?.[0]?.delta?.reasoning_content) {
+                    ctx.appendReasoningContent(
+                      data.choices[0].delta.reasoning_content
+                    );
+                    const thinkingChunk = {
+                      ...data,
+                      choices: [
+                        {
+                          ...data.choices[0],
+                          delta: {
+                            ...data.choices[0].delta,
+                            thinking: {
+                              content: data.choices[0].delta.reasoning_content,
+                            },
                           },
                         },
-                      },
-                    ],
-                  };
-                  delete thinkingChunk.choices[0].delta.reasoning_content;
-                  const thinkingLine = `data: ${JSON.stringify(
-                    thinkingChunk
-                  )}\n\n`;
-                  controller.enqueue(encoder.encode(thinkingLine));
-                  return;
-                }
-
-                // Check if reasoning is complete (when delta has content but no reasoning_content)
-                if (
-                  (data.choices?.[0]?.delta?.content ||
-                    data.choices?.[0]?.delta?.tool_calls) &&
-                  context.reasoningContent() &&
-                  !context.isReasoningComplete()
-                ) {
-                  context.setReasoningComplete(true);
-                  const signature = Date.now().toString();
-
-                  // Create a new chunk with thinking block
-                  const thinkingChunk = {
-                    ...data,
-                    choices: [
-                      {
-                        ...data.choices[0],
-                        delta: {
-                          ...data.choices[0].delta,
-                          content: null,
-                          thinking: {
-                            content: context.reasoningContent(),
-                            signature: signature,
-                          },
-                        },
-                      },
-                    ],
-                  };
-                  delete thinkingChunk.choices[0].delta.reasoning_content;
-                  // Send the thinking chunk
-                  const thinkingLine = `data: ${JSON.stringify(
-                    thinkingChunk
-                  )}\n\n`;
-                  controller.enqueue(encoder.encode(thinkingLine));
-                }
-
-                if (data.choices?.[0]?.delta?.reasoning_content) {
-                  delete data.choices[0].delta.reasoning_content;
-                }
-
-                // Send the modified chunk
-                if (
-                  data.choices?.[0]?.delta &&
-                  Object.keys(data.choices[0].delta).length > 0
-                ) {
-                  if (context.isReasoningComplete()) {
-                    data.choices[0].index++;
+                      ],
+                    };
+                    delete thinkingChunk.choices[0].delta.reasoning_content;
+                    const thinkingLine = `data: ${JSON.stringify(
+                      thinkingChunk
+                    )}\n\n`;
+                    controller.enqueue(encoder.encode(thinkingLine));
+                    return;
                   }
-                  const modifiedLine = `data: ${JSON.stringify(data)}\n\n`;
-                  controller.enqueue(encoder.encode(modifiedLine));
+
+                  // Check if reasoning is complete (when delta has content but no reasoning_content)
+                  if (
+                    (data.choices?.[0]?.delta?.content ||
+                      data.choices?.[0]?.delta?.tool_calls) &&
+                    ctx.reasoningContent() &&
+                    !ctx.isReasoningComplete()
+                  ) {
+                    ctx.setReasoningComplete(true);
+                    const signature = Date.now().toString();
+
+                    // Create a new chunk with thinking block
+                    const thinkingChunk = {
+                      ...data,
+                      choices: [
+                        {
+                          ...data.choices[0],
+                          delta: {
+                            ...data.choices[0].delta,
+                            content: null,
+                            thinking: {
+                              content: ctx.reasoningContent(),
+                              signature: signature,
+                            },
+                          },
+                        },
+                      ],
+                    };
+                    delete thinkingChunk.choices[0].delta.reasoning_content;
+                    // Send the thinking chunk
+                    const thinkingLine = `data: ${JSON.stringify(
+                      thinkingChunk
+                    )}\n\n`;
+                    controller.enqueue(encoder.encode(thinkingLine));
+                  }
+
+                  if (data.choices?.[0]?.delta?.reasoning_content) {
+                    delete data.choices[0].delta.reasoning_content;
+                  }
+
+                  // Send the modified chunk
+                  if (
+                    data.choices?.[0]?.delta &&
+                    Object.keys(data.choices[0].delta).length > 0
+                  ) {
+                    if (ctx.isReasoningComplete()) {
+                      data.choices[0].index++;
+                    }
+                    const modifiedLine = `data: ${JSON.stringify(data)}\n\n`;
+                    controller.enqueue(encoder.encode(modifiedLine));
+                  }
+                } else {
+                  // Client doesn't want thinking - convert reasoning_content to content
+
+                  if (data.choices?.[0]?.delta?.reasoning_content) {
+                    // Convert reasoning_content to content
+                    data.choices[0].delta.content = data.choices[0].delta.reasoning_content;
+                    delete data.choices[0].delta.reasoning_content;
+                  }
+
+                  // Send the modified chunk
+                  if (
+                    data.choices?.[0]?.delta &&
+                    Object.keys(data.choices[0].delta).length > 0
+                  ) {
+                    const modifiedLine = `data: ${JSON.stringify(data)}\n\n`;
+                    controller.enqueue(encoder.encode(modifiedLine));
+                  }
                 }
               } catch (e) {
                 // If JSON parsing fails, pass through the original line
@@ -200,10 +213,6 @@ export class ReasoningTransformer implements Transformer {
             while (true) {
               const { done, value } = await reader.read();
               if (done) {
-                // Process remaining data in buffer
-                if (buffer.trim()) {
-                  processBuffer(buffer, controller, encoder);
-                }
                 break;
               }
 
