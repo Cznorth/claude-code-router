@@ -102,6 +102,11 @@ export function convertToOpenAI(
       }
     }
 
+    // Convert thinking to reasoning_content for DeepSeek API compatibility
+    if (msg.role === "assistant" && msg.thinking?.content) {
+      message.reasoning_content = msg.thinking.content;
+    }
+
     messages.push(message);
 
     if (
