@@ -145,6 +145,14 @@ const getUseModel = async (
     return { model: req.body.model, scenarioType: 'default' };
   }
 
+  // Check if user specified a valid model name (without provider prefix)
+  const userModel = req.body.model;
+  for (const provider of providers) {
+    if (provider.models?.includes(userModel)) {
+      return { model: `${provider.name},${userModel}`, scenarioType: 'default' };
+    }
+  }
+
   // if tokenCount is greater than the configured threshold, use the long context model
   const longContextThreshold = Router?.longContextThreshold || 60000;
   const lastUsageThreshold =
