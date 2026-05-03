@@ -30,8 +30,15 @@ export class ReasoningTransformer implements Transformer {
     return request;
   }
 
-  async transformResponseOut(response: Response): Promise<Response> {
+  async transformResponseOut(response: Response, context?: any): Promise<Response> {
     if (!this.enable) return response;
+
+    // Check if the client requested thinking - if not, don't convert reasoning_content
+    const clientRequestedThinking = context?.req?.body?.thinking !== undefined;
+    if (!clientRequestedThinking) {
+      return response;
+    }
+
     if (response.headers.get("Content-Type")?.includes("application/json")) {
       const jsonResponse = await response.json();
       if (jsonResponse.choices[0]?.message.reasoning_content) {
