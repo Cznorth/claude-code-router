@@ -269,13 +269,6 @@ export class ProviderService {
           owned_by: provider.name,
           provider: provider.name,
         });
-
-        models.push({
-          id: `${provider.name},${model}`,
-          object: "model",
-          owned_by: provider.name,
-          provider: provider.name,
-        });
       });
     });
 
