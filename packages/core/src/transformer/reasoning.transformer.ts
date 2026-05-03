@@ -95,6 +95,13 @@ export class ReasoningTransformer implements Transformer {
                 const data = JSON.parse(line.slice(6));
                 console.log(JSON.stringify(data))
 
+                // Check if this chunk has usage info - if so, always send it
+                if (data.usage && Object.keys(data.usage).length > 0) {
+                  const usageLine = `data: ${JSON.stringify(data)}\n\n`;
+                  controller.enqueue(encoder.encode(usageLine));
+                  return;
+                }
+
                 // Extract reasoning_content from delta
                 if (data.choices?.[0]?.delta?.reasoning_content) {
                   context.appendReasoningContent(

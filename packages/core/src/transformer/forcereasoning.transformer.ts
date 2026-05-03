@@ -108,6 +108,14 @@ export class ForceReasoningTransformer implements Transformer {
             originalData: any,
             content: string | null | undefined
           ) => {
+            // Check if this chunk has usage info - if so, always send it
+            if (originalData.usage && Object.keys(originalData.usage).length > 0) {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify(originalData)}\n\n`)
+              );
+              return;
+            }
+
             if (typeof content !== "string") {
               if (
                 originalData.choices?.[0]?.delta &&
