@@ -1,0 +1,22 @@
+{
+  "APIKEY": "your-api-key-here",
+  "LOG": true,
+  "LOG_LEVEL": "info",
+  "API_TIMEOUT_MS": 600000,
+  "NON_INTERACTIVE_MODE": true,
+  "HOST": "0.0.0.0",
+  "Providers": [{
+    "name": "example-provider",
+    "api_base_url": "https://api.example.com/v1/chat/completions",
+    "api_key": "your-provider-api-key",
+    "models": ["model-1", "model-2"],
+    "transformer": {"use": ["OpenAI"]}
+  }],
+  "Router": {
+    "default": "example-provider,model-1",
+    "background": "example-provider,model-2",
+    "think": "example-provider,model-1",
+    "longContext": "example-provider,model-1",
+    "longContextThreshold": 60000
+  }
+}

@@ -1,0 +1,21 @@
+services:
+  claude-code-router:
+    build: .
+    image: claude-code-router:latest
+    container_name: claude-code-router
+    restart: unless-stopped
+    ports:
+      - "3456:3456"
+    volumes:
+      - ./config.json:/root/.claude-code-router/config.json:ro
+      - ccr-logs:/root/.claude-code-router/logs
+    environment:
+      - NODE_ENV=production
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3456/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  ccr-logs:
