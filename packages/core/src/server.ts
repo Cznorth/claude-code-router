@@ -227,10 +227,43 @@ class Server {
                   .code(400)
                   .send({ error: "Missing model in request body" });
               }
-              const [provider, ...model] = body.model.split(",");
-              body.model = model.join(",");
-              req.provider = provider;
-              req.model = model;
+
+              // If model contains comma, split into provider and model
+              if (body.model.includes(",")) {
+                const [provider, ...model] = body.model.split(",");
+                body.model = model.join(",");
+                req.provider = provider;
+                req.model = model;
+              } else {
+                // For /v1/chat/completions without provider prefix,
+                // find the provider that has this model
+                if (isChatCompletions) {
+                  const providers = this.configService.get<any[]>("providers") || [];
+                  let foundProvider = null;
+                  for (const provider of providers) {
+                    if (provider.models?.includes(body.model)) {
+                      foundProvider = provider.name;
+                      break;
+                    }
+                  }
+                  if (foundProvider) {
+                    req.provider = foundProvider;
+                    req.model = [body.model];
+                    // Keep body.model as is (without provider prefix)
+                  } else {
+                    // Model not found in any provider, use first provider and pass through
+                    if (providers.length > 0) {
+                      req.provider = providers[0].name;
+                      req.model = [body.model];
+                    }
+                  }
+                } else {
+                  // For /v1/messages, should go through router
+                  return reply
+                    .code(400)
+                    .send({ error: `Model '${body.model}' not found in any provider` });
+                }
+              }
               return;
             } catch (err) {
               req.log.error({error: err}, "Error in modelProviderMiddleware:");
