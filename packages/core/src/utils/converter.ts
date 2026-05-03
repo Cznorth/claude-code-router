@@ -275,6 +275,7 @@ export function convertFromAnthropic(
   }
   const pendingToolCalls: any[] = [];
   const pendingTextContent: string[] = [];
+  let pendingThinking: { content: string; signature?: string } | null = null;
   let lastRole: string | null = null;
 
   for (let i = 0; i < request.messages.length; i++) {
@@ -295,6 +296,10 @@ export function convertFromAnthropic(
         if (assistantMessage.tool_calls && pendingTextContent.length === 0) {
           assistantMessage.content = null;
         }
+        if (pendingThinking) {
+          assistantMessage.thinking = pendingThinking;
+          pendingThinking = null;
+        }
         messages.push(assistantMessage);
         pendingToolCalls.length = 0;
         pendingTextContent.length = 0;
@@ -308,10 +313,16 @@ export function convertFromAnthropic(
       const textBlocks: string[] = [];
       const toolCalls: any[] = [];
       const toolResults: any[] = [];
+      let thinkingContent: string | null = null;
+      let thinkingSignature: string | null = null;
 
       msg.content.forEach((block) => {
         if (block.type === "text") {
           textBlocks.push(block.text);
+        } else if (block.type === "thinking") {
+          // Extract thinking block content
+          thinkingContent = (block as any).thinking || null;
+          thinkingSignature = (block as any).signature || null;
         } else if (block.type === "tool_use") {
           toolCalls.push({
             id: block.id,
@@ -335,6 +346,10 @@ export function convertFromAnthropic(
           };
           if (pendingTextContent.length === 0) {
             assistantMessage.content = null;
+          }
+          if (pendingThinking) {
+            assistantMessage.thinking = pendingThinking;
+            pendingThinking = null;
           }
           messages.push(assistantMessage);
           pendingToolCalls.length = 0;
@@ -373,6 +388,14 @@ export function convertFromAnthropic(
           pendingToolCalls.push(...toolCalls);
           pendingTextContent.push(...textBlocks);
         }
+
+        // Save thinking content for this assistant message
+        if (thinkingContent) {
+          pendingThinking = {
+            content: thinkingContent,
+            signature: thinkingSignature || undefined,
+          };
+        }
       } else {
         if (lastRole === "assistant" && pendingToolCalls.length > 0) {
           const assistantMessage: UnifiedMessage = {
@@ -382,6 +405,10 @@ export function convertFromAnthropic(
           };
           if (pendingTextContent.length === 0) {
             assistantMessage.content = null;
+          }
+          if (pendingThinking) {
+            assistantMessage.thinking = pendingThinking;
+            pendingThinking = null;
           }
           messages.push(assistantMessage);
           pendingToolCalls.length = 0;
@@ -412,6 +439,10 @@ export function convertFromAnthropic(
         if (pendingTextContent.length === 0) {
           assistantMessage.content = null;
         }
+        if (pendingThinking) {
+          assistantMessage.thinking = pendingThinking;
+          pendingThinking = null;
+        }
         messages.push(assistantMessage);
         pendingToolCalls.length = 0;
         pendingTextContent.length = 0;
@@ -434,6 +465,9 @@ export function convertFromAnthropic(
     };
     if (pendingTextContent.length === 0) {
       assistantMessage.content = null;
+    }
+    if (pendingThinking) {
+      assistantMessage.thinking = pendingThinking;
     }
     messages.push(assistantMessage);
   }
