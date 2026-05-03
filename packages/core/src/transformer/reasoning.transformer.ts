@@ -27,6 +27,17 @@ export class ReasoningTransformer implements Transformer {
       };
       request.enable_thinking = true;
     }
+
+    // Convert thinking blocks in history messages to reasoning_content for DeepSeek API
+    // DeepSeek requires reasoning_content to be passed back in multi-turn conversations
+    for (const message of request.messages) {
+      if (message.role === "assistant" && message.thinking?.content) {
+        // Convert thinking to reasoning_content
+        (message as any).reasoning_content = message.thinking.content;
+        delete message.thinking;
+      }
+    }
+
     return request;
   }
 
