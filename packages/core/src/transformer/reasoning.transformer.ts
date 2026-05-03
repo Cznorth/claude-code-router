@@ -28,14 +28,25 @@ export class ReasoningTransformer implements Transformer {
       request.enable_thinking = true;
     }
 
-    // Convert thinking blocks in history messages to reasoning_content for DeepSeek API
-    // DeepSeek requires reasoning_content to be passed back in multi-turn conversations
+    // Check if there are thinking blocks in history messages
+    let hasHistoryThinking = false;
     for (const message of request.messages) {
       if (message.role === "assistant" && message.thinking?.content) {
+        hasHistoryThinking = true;
         // Convert thinking to reasoning_content
         (message as any).reasoning_content = message.thinking.content;
         delete message.thinking;
       }
+    }
+
+    // If history has thinking but client didn't request thinking,
+    // we still need to tell DeepSeek this is a thinking conversation
+    if (hasHistoryThinking && !request.thinking) {
+      request.thinking = {
+        type: "enabled",
+        budget_tokens: 0, // 0 means continue thinking mode without new thinking
+      };
+      request.enable_thinking = true;
     }
 
     return request;
