@@ -273,38 +273,11 @@ export function convertFromAnthropic(
       content: request.system,
     });
   }
-  const pendingToolCalls: any[] = [];
-  const pendingTextContent: string[] = [];
-  let pendingThinking: { content: string; signature?: string } | null = null;
-  let lastRole: string | null = null;
 
   for (let i = 0; i < request.messages.length; i++) {
     const msg = request.messages[i];
 
     if (typeof msg.content === "string") {
-      if (
-        lastRole === "assistant" &&
-        pendingToolCalls.length > 0 &&
-        msg.role !== "assistant"
-      ) {
-        const assistantMessage: UnifiedMessage = {
-          role: "assistant",
-          content: pendingTextContent.join("") || null,
-          tool_calls:
-            pendingToolCalls.length > 0 ? pendingToolCalls : undefined,
-        };
-        if (assistantMessage.tool_calls && pendingTextContent.length === 0) {
-          assistantMessage.content = null;
-        }
-        if (pendingThinking) {
-          assistantMessage.thinking = pendingThinking;
-          pendingThinking = null;
-        }
-        messages.push(assistantMessage);
-        pendingToolCalls.length = 0;
-        pendingTextContent.length = 0;
-      }
-
       messages.push({
         role: msg.role,
         content: msg.content,
@@ -320,7 +293,6 @@ export function convertFromAnthropic(
         if (block.type === "text") {
           textBlocks.push(block.text);
         } else if (block.type === "thinking") {
-          // Extract thinking block content
           thinkingContent = (block as any).thinking || null;
           thinkingSignature = (block as any).signature || null;
         } else if (block.type === "tool_use") {
@@ -338,24 +310,6 @@ export function convertFromAnthropic(
       });
 
       if (toolResults.length > 0) {
-        if (lastRole === "assistant" && pendingToolCalls.length > 0) {
-          const assistantMessage: UnifiedMessage = {
-            role: "assistant",
-            content: pendingTextContent.join("") || null,
-            tool_calls: pendingToolCalls,
-          };
-          if (pendingTextContent.length === 0) {
-            assistantMessage.content = null;
-          }
-          if (pendingThinking) {
-            assistantMessage.thinking = pendingThinking;
-            pendingThinking = null;
-          }
-          messages.push(assistantMessage);
-          pendingToolCalls.length = 0;
-          pendingTextContent.length = 0;
-        }
-
         toolResults.forEach((toolResult) => {
           messages.push({
             role: "tool",
@@ -366,55 +320,7 @@ export function convertFromAnthropic(
             tool_call_id: toolResult.tool_use_id,
           });
         });
-      } else if (msg.role === "assistant") {
-        if (lastRole === "assistant") {
-          pendingToolCalls.push(...toolCalls);
-          pendingTextContent.push(...textBlocks);
-        } else {
-          if (pendingToolCalls.length > 0) {
-            const prevAssistantMessage: UnifiedMessage = {
-              role: "assistant",
-              content: pendingTextContent.join("") || null,
-              tool_calls: pendingToolCalls,
-            };
-            if (pendingTextContent.length === 0) {
-              prevAssistantMessage.content = null;
-            }
-            messages.push(prevAssistantMessage);
-          }
-
-          pendingToolCalls.length = 0;
-          pendingTextContent.length = 0;
-          pendingToolCalls.push(...toolCalls);
-          pendingTextContent.push(...textBlocks);
-        }
-
-        // Save thinking content for this assistant message
-        if (thinkingContent) {
-          pendingThinking = {
-            content: thinkingContent,
-            signature: thinkingSignature || undefined,
-          };
-        }
       } else {
-        if (lastRole === "assistant" && pendingToolCalls.length > 0) {
-          const assistantMessage: UnifiedMessage = {
-            role: "assistant",
-            content: pendingTextContent.join("") || null,
-            tool_calls: pendingToolCalls,
-          };
-          if (pendingTextContent.length === 0) {
-            assistantMessage.content = null;
-          }
-          if (pendingThinking) {
-            assistantMessage.thinking = pendingThinking;
-            pendingThinking = null;
-          }
-          messages.push(assistantMessage);
-          pendingToolCalls.length = 0;
-          pendingTextContent.length = 0;
-        }
-
         const message: UnifiedMessage = {
           role: msg.role,
           content: textBlocks.join("") || null,
@@ -427,49 +333,22 @@ export function convertFromAnthropic(
           }
         }
 
+        // Add thinking for assistant messages
+        if (msg.role === "assistant" && thinkingContent) {
+          message.thinking = {
+            content: thinkingContent,
+            signature: thinkingSignature || undefined,
+          };
+        }
+
         messages.push(message);
       }
     } else {
-      if (lastRole === "assistant" && pendingToolCalls.length > 0) {
-        const assistantMessage: UnifiedMessage = {
-          role: "assistant",
-          content: pendingTextContent.join("") || null,
-          tool_calls: pendingToolCalls,
-        };
-        if (pendingTextContent.length === 0) {
-          assistantMessage.content = null;
-        }
-        if (pendingThinking) {
-          assistantMessage.thinking = pendingThinking;
-          pendingThinking = null;
-        }
-        messages.push(assistantMessage);
-        pendingToolCalls.length = 0;
-        pendingTextContent.length = 0;
-      }
-
       messages.push({
         role: msg.role,
         content: JSON.stringify(msg.content),
       });
     }
-
-    lastRole = msg.role;
-  }
-
-  if (lastRole === "assistant" && pendingToolCalls.length > 0) {
-    const assistantMessage: UnifiedMessage = {
-      role: "assistant",
-      content: pendingTextContent.join("") || null,
-      tool_calls: pendingToolCalls,
-    };
-    if (pendingTextContent.length === 0) {
-      assistantMessage.content = null;
-    }
-    if (pendingThinking) {
-      assistantMessage.thinking = pendingThinking;
-    }
-    messages.push(assistantMessage);
   }
 
   const result: UnifiedChatRequest = {
