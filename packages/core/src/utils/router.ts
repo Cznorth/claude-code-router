@@ -191,8 +191,17 @@ const getUseModel = async (
   ) {
     return { model: Router.webSearch, scenarioType: 'webSearch' };
   }
-  // if exits thinking, use the think model
+  // if exits thinking, use the think model (but preserve user-specified model if it matches a provider model)
   if (req.body.thinking && Router?.think) {
+    // Check if user specified a valid model, use it instead of think router
+    const userModel = req.body.model;
+    const providers = configService.get<any[]>("providers") || [];
+    for (const provider of providers) {
+      if (provider.models?.includes(userModel)) {
+        req.log.info(`Using user-specified model for thinking: ${provider.name},${userModel}`);
+        return { model: `${provider.name},${userModel}`, scenarioType: 'think' };
+      }
+    }
     req.log.info(`Using think model for ${req.body.thinking}`);
     return { model: Router.think, scenarioType: 'think' };
   }
